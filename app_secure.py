@@ -110,7 +110,7 @@ def login_page():
             unsafe_allow_html=True
         )
         st.markdown(
-            "<p style='text-align: center; color: #666; margin-bottom: 2rem;'>Darvis - PDF Objednávky</p>",
+            "<p style='text-align: center; color: #666; margin-bottom: 2rem;'>PDF Objednávky</p>",
             unsafe_allow_html=True
         )
         
