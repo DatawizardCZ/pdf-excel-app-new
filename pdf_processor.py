@@ -315,11 +315,16 @@ def extract_data_from_pdf(pdf_path: Path) -> pd.DataFrame:
             
             row_data = []
             
-            # 1. Vendor Item No. - první část (číslo, může být 5 cifer nebo kratší s nulou)
-            if parts[0].isdigit():
-                row_data.append(parts[0])
+            # 1. Vendor Item No. - první část
+            #    Původně bylo očekáváno čistě číselné ID (např. 159105).
+            #    Nyní podporujeme i 6místné alfanumerické kódy, kde poslední znak může být písmeno,
+            #    např. 15910S.
+            vendor_item_token = parts[0]
+            if re.match(r'^\d{5}[A-Za-z0-9]?$', vendor_item_token):
+                row_data.append(vendor_item_token)
                 parts = parts[1:]
             else:
+                # Pokud první token neodpovídá očekávanému formátu Vendor Item, přeskočíme řádek
                 continue
             
             # 2. Barcode No. - druhá část (dlouhé číslo, typicky 13 cifer)
