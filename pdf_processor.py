@@ -316,36 +316,45 @@ def extract_data_from_pdf(pdf_path: Path) -> pd.DataFrame:
             row_data = []
             
             # 1. Vendor Item No. - první část
-            #    Původně bylo očekáváno čistě číselné ID (např. 159105).
-            #    Nyní podporujeme i 6místné alfanumerické kódy, kde poslední znak může být písmeno,
-            #    např. 15910S.
+            #    Chceme být tolerantní k formátům (čistě číselné, alfanumerické, kombinace),
+            #    ale zároveň se nesmíme splést a nechat si sem spadnout čárový kód.
+            #    Strategie:
+            #      - první token vezmeme jako Vendor Item, pokud:
+            #          * není to typický čárový kód (dlouhé čistě číselné ID, např. 13 číslic)
+            #      - tím zachováme i hodnoty jako 15910S, 15910-1 apod.
             vendor_item_token = parts[0]
-            if re.match(r'^\d{5}[A-Za-z0-9]?$', vendor_item_token):
+            is_barcode_like = vendor_item_token.isdigit() and len(vendor_item_token) >= 10
+            if not is_barcode_like:
                 row_data.append(vendor_item_token)
                 parts = parts[1:]
             else:
-                # Pokud první token neodpovídá očekávanému formátu Vendor Item, přeskočíme řádek
+                # Pokud první token vypadá jako čárový kód, řádek raději přeskočíme,
+                # protože struktura zřejmě neodpovídá očekávanému formátu tabulky.
                 continue
             
             # 2. Barcode No. - druhá část (dlouhé číslo, typicky 13 cifer)
+            #    Pokud druhý token nevypadá jako typický čárový kód, řádek NEVYHAZUJEME,
+            #    jen necháme čárový kód prázdný a zbytek bereme jako popis atd.
             if parts and parts[0].isdigit() and len(parts[0]) >= 10:
                 row_data.append(parts[0])
                 parts = parts[1:]
             else:
-                continue
+                row_data.append('')
             
             remaining = ' '.join(parts)
             
             # 3-4. Description a Variant (Variant bývá prázdný)
-            # Najít první hodnotu, která vypadá jako cena - musí obsahovat desetinnou čárku nebo tečku
+            # Najít první hodnotu, která vypadá jako cena - musí obsahovat desetinnou čárku nebo tečku.
+            # Pokud cenu nenajdeme, necháme ji prázdnou, ale řádek stejně zachováme.
             price_match = re.search(r'\d+(?:[.,]\d{2})', remaining)
-            if not price_match:
-                # Pokud nenajdeme cenu s desetinnou čárkou, řádek nemá očekávanou strukturu
-                continue
-            
-            description_text = remaining[:price_match.start()].strip()
-            price_value = price_match.group(0)
-            after_price = remaining[price_match.end():].strip()
+            if price_match:
+                description_text = remaining[:price_match.start()].strip()
+                price_value = price_match.group(0)
+                after_price = remaining[price_match.end():].strip()
+            else:
+                description_text = remaining.strip()
+                price_value = ''
+                after_price = ''
             
             # Po ceně následují tři číselné sloupce: Quantity, Kolli Str., Pieces
             trailing_tokens = re.split(r'\s+', after_price)
