@@ -24,7 +24,7 @@ import tempfile
 import secrets
 from typing import List, Dict, Optional, Tuple
 
-from pdf_processor import extract_data_from_pdf
+from pdf_processor import extract_data_from_pdf, get_processor_version
 from config import (
     APP_USERNAME, APP_PASSWORD,
     MAX_FILE_SIZE_MB, MAX_FILES_PER_SESSION,
@@ -153,8 +153,9 @@ def login_page():
                     logger.warning(f"Neúspěšný pokus o přihlášení (pokus {st.session_state.login_attempts + 1})")
         
         st.markdown("<br><br>", unsafe_allow_html=True)
+        proc_version = get_processor_version()
         st.markdown(
-            f"<div style='text-align: center; color: #999; font-size: 0.85rem;'>{APP_NAME} v{APP_VERSION}</div>",
+            f"<div style='text-align: center; color: #999; font-size: 0.85rem;'>{APP_NAME} v{APP_VERSION} | PDF Processor v{proc_version['version']} ({proc_version['last_updated']})</div>",
             unsafe_allow_html=True
         )
 
@@ -549,8 +550,9 @@ def main_app():
     
     # Footer
     st.markdown("---")
+    proc_version = get_processor_version()
     st.markdown(
-        f"<div style='text-align: center; color: #666;'>{APP_NAME} | Verze {APP_VERSION}</div>",
+        f"<div style='text-align: center; color: #666;'>{APP_NAME} | Verze {APP_VERSION} | PDF Processor v{proc_version['version']} ({proc_version['last_updated']})</div>",
         unsafe_allow_html=True
     )
 

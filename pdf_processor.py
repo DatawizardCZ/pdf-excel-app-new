@@ -3,6 +3,10 @@ Modul pro zpracování PDF objednávek
 Extrahuje data z PDF a transformuje je do strukturovaného formátu
 """
 
+# Version info for deployment verification
+PDF_PROCESSOR_VERSION = "2.0.0"
+PDF_PROCESSOR_LAST_UPDATED = "2025-11-26"
+
 import pdfplumber
 import pandas as pd
 import re
@@ -527,4 +531,17 @@ def process_pdf_to_excel(pdf_path: Path, output_path: Optional[Path] = None) -> 
         df.to_excel(writer, index=False, sheet_name='Objednávka')
     
     return output_path
+
+
+def get_processor_version() -> Dict[str, str]:
+    """
+    Vrací informace o verzi PDF procesoru pro ověření deploymentu
+    
+    Returns:
+        Dict s verzí a datem poslední aktualizace
+    """
+    return {
+        "version": PDF_PROCESSOR_VERSION,
+        "last_updated": PDF_PROCESSOR_LAST_UPDATED
+    }
 

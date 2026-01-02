@@ -1,0 +1,10 @@
+# Git attributes for better tracking
+*.py linguist-language=Python
+*.md linguist-language=Markdown
+*.bat linguist-language=Batchfile
+
+# Track file timestamps
+* text=auto
+
+
+
