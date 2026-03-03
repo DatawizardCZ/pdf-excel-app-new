@@ -77,6 +77,6 @@ DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 # APPLICATION METADATA
 # ============================================================================
 APP_NAME = "Darvis - PDF Objednávky"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 APP_DESCRIPTION = "Bezpečná aplikace pro převod PDF objednávek do Excelu"
 
