@@ -58,6 +58,14 @@ streamlit run app_secure.py
 
 Aplikace bude dostupná na `http://localhost:8501`
 
+Pokud chcete spusit bez automatického otevření prohlížeče, použijte:
+
+```bash
+streamlit run app_secure.py --server.headless true
+```
+
+Aplikace bude dostupná na `http://localhost:8501`
+
 ## 🔒 Bezpečnost
 
 ⚠️ **DŮLEŽITÉ PRO PRODUKCI:**

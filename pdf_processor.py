@@ -284,17 +284,17 @@ def extract_data_from_pdf(pdf_path: Path) -> pd.DataFrame:
             if not line:
                 continue
             
-            # Přeskočit patičku
-            if any(keyword in line.lower() for keyword in ['total', 'sum', 'i alt', 'page']):
-                break
+            # Přeskočit patičku (použít continue místo break, aby se pokračovalo na další stránky)
+            if any(keyword in line.lower() for keyword in ['total', 'sum', 'i alt', 'page', 'side']):
+                continue
             
             # Zkontrolovat, jestli je to víceřádková položka (druhý řádek - specifikace)
             # Druhý řádek obvykle nezačíná číslem a je pod datovým řádkem
-            # Také nesmí být prázdný řádek nebo patička
+            # Také nesmí být prázdný řádek, patička ani hlavička další stránky
             if (current_item is not None and 
                 not re.match(r'^\d+', line) and 
                 line.strip() and
-                not any(keyword in line.lower() for keyword in ['total', 'sum', 'i alt', 'page', 'side'])):
+                not any(keyword in line.lower() for keyword in ['total', 'sum', 'i alt', 'page', 'side', 'vendor', 'barcode', 'stregkode', 'item no', 'item nr'])):
                 # Toto je specifikace (druhý řádek popisu) - uložit do samostatného sloupce
                 current_item['Specification'] = line.strip()
                 all_rows.append(current_item.copy())
