@@ -4,8 +4,8 @@ Extrahuje data z PDF a transformuje je do strukturovaného formátu
 """
 
 # Version info for deployment verification
-PDF_PROCESSOR_VERSION = "2.0.0"
-PDF_PROCESSOR_LAST_UPDATED = "2025-11-26"
+PDF_PROCESSOR_VERSION = "2.0.1"
+PDF_PROCESSOR_LAST_UPDATED = "2026-03-03"
 
 import pdfplumber
 import pandas as pd
