@@ -1,30 +1,44 @@
 # Darvis - PDF Objednávky
 
 Webová aplikace pro převod PDF objednávek (Købsrekvisition) do Excelu.
-Frontend je statický HTML/JS, backend je jediná Python serverless funkce na Vercelu,
-která znovupoužívá parser z [`pdf_processor.py`](pdf_processor.py).
+Frontend je statický HTML/JS, backend jsou dvě Python serverless funkce na Vercelu
+(`/api/process` pro PDF→XLSX, `/api/auth` pro login), které znovupoužívají parser
+z [`pdf_processor.py`](pdf_processor.py).
 
 ## Architektura
 
 ```
-┌──────────────┐  POST /api/process  ┌────────────────────┐
+┌──────────────┐  POST /api/process  ┌─────────────────────┐
 │ index.html   │ ─────────────────▶  │ api/process.py      │
-│ (drag&drop,  │  multipart/form-data │ Flask + pdfplumber  │
-│  fetch, ZIP) │ ◀───────────────── │ → openpyxl XLSX     │
-└──────────────┘     XLSX bytes      └────────────────────┘
+│ (drag&drop,  │  multipart/form-data│ Flask + pdfplumber  │
+│  fetch, ZIP) │ ◀──────────────── │ → openpyxl XLSX     │
+│              │     XLSX bytes      └─────────────────────┘
+│              │  GET/POST /api/auth ┌─────────────────────┐
+│              │ ─────────────────▶  │ api/auth.py         │
+│              │  Bearer / JSON      │ hmac.compare_digest │
+│              │ ◀──────────────── │ → 200/401           │
+└──────────────┘                     └─────────────────────┘
         ▲
         │  Authorization: Bearer <APP_PASSWORD>
         │  (sdílené heslo z env variable,
         │   sessionStorage v prohlížeči)
 ```
 
+**Pozor na Vercel routing**: Vercel přiřazuje URL podle souborů v `/api`
+(`/api/process` ↔ `api/process.py`, `/api/auth` ↔ `api/auth.py`). Více Flask rout
+v jednom souboru by lokálně fungovalo, ale produkce by je nikdy nedostala — proto
+je auth ve vlastním souboru.
+
 ## Struktura repa
 
 ```
 .
-├── api/process.py        # Vercel Python Function (Flask, /api/process)
+├── api/
+│   ├── process.py        # Vercel funkce: POST /api/process (PDF → XLSX, auth-gated)
+│   └── auth.py           # Vercel funkce: GET/POST /api/auth (login)
 ├── index.html            # Frontend (vanilla HTML+CSS+JS, single file)
 ├── pdf_processor.py      # PDF parser (sdílený s původní Streamlit verzí)
+├── dev_server.py         # Lokální dev server (sjednocuje obě funkce + statiku)
 ├── requirements.txt      # Python dependencies pro serverless
 ├── vercel.json           # Vercel konfigurace (memory, maxDuration)
 ├── .env.example          # Vzor environment variables
@@ -70,25 +84,31 @@ Hlavičky se automaticky přizpůsobí jazyku původního PDF (anglické/dánsk�
 
 ## Lokální vývoj
 
-Potřebuješ Node.js (kvůli Vercel CLI) a Python 3.9+.
+Potřebuješ Python 3.9+.
 
 ```bash
-npm i -g vercel
-vercel link              # propojí repo s Vercel projektem (jednou)
-vercel dev               # spustí frontend i Python funkci na http://localhost:3000
+pip install -r requirements.txt
+APP_PASSWORD=test123 python dev_server.py
 ```
 
-`vercel dev` automaticky:
-- nainstaluje `requirements.txt` do izolovaného prostředí
-- servíruje `index.html` na `/`
-- routuje `POST /api/process` na `api/process.py`
+`dev_server.py` spustí jediný Flask server na `http://localhost:3000`, který:
+- servíruje `index.html` na `/`,
+- znovuregistruje routy z `api/process.py` (POST `/api/process`),
+- znovuregistruje routy z `api/auth.py` (GET/POST `/api/auth`),
+- aplikuje stejnou auth gate jako produkce.
 
-Otestuj proti vzorkům:
+Pokud `APP_PASSWORD` nezadáš, app běží v "open" režimu (bez hesla).
+
+Otestuj proti vzorkům (s heslem):
 
 ```bash
-curl -X POST -F "file=@test_files/Købsrekvisition K0145913 TIL.pdf" \
+curl -X POST -H "Authorization: Bearer test123" \
+  -F "file=@test_files/Købsrekvisition K0145913 TIL.pdf" \
   http://localhost:3000/api/process -o test.xlsx
 ```
+
+Případně lze použít `vercel dev` (vyžaduje login do Vercel CLI a `vercel link`),
+ale `dev_server.py` je rychlejší a funguje offline.
 
 ## Deploy
 
@@ -134,7 +154,8 @@ Nastavení v produkci:
 ### Environment variables
 
 Nastavují se v Vercel dashboardu (Project Settings → Environment Variables).
-Pro lokální `vercel dev` se načítají z `.env.local` (vytvoř kopii z `.env.example`).
+Lokálně je předáš inline (`APP_PASSWORD=... python dev_server.py`) nebo přes
+`.env.local` (vytvoř kopii z `.env.example` a načti přes `set -a; source .env.local; set +a`).
 
 | Proměnná | Default | Význam |
 |---|---|---|

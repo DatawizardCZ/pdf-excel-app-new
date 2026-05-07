@@ -1,10 +1,13 @@
 """
-Vercel Python Serverless Function: PDF -> Excel converter
+Vercel Python Serverless Function: PDF -> Excel converter.
 
-Wraps the existing pdf_processor.py module and returns an XLSX file
-generated from an uploaded PDF (multipart/form-data, field name "file").
+Wraps `pdf_processor.py` 1:1 a vrací XLSX vytvořený z nahraného PDF
+(multipart/form-data, pole `file`).
 
 Endpoint: POST /api/process
+
+Auth: vyžaduje `Authorization: Bearer <APP_PASSWORD>` pokud je APP_PASSWORD
+nastaveno. Login flow řeší samostatná funkce v `api/auth.py`.
 """
 from __future__ import annotations
 
@@ -16,31 +19,26 @@ import tempfile
 import traceback
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, jsonify, request, send_file
 
-# Ensure project root is importable so we can reuse pdf_processor.py 1:1
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import pandas as pd
-from pdf_processor import extract_data_from_pdf, get_processor_version
+from pdf_processor import extract_data_from_pdf
 
 app = Flask(__name__)
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-# Sdílené heslo pro celou aplikaci. V produkci se nastavuje v Vercel dashboardu
-# (Project Settings -> Environment Variables -> APP_PASSWORD). Pokud není
-# nastaveno, aplikace běží v "open" režimu (žádné heslo) — užitečné pro lokální
-# vývoj. Pro produkci VŽDY nastavte silné heslo.
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 
 
 def _has_valid_auth() -> bool:
-    """Constant-time porovnání hesla z Authorization: Bearer <heslo> headeru."""
+    """Constant-time porovnání hesla z `Authorization: Bearer <heslo>` headeru."""
     if not APP_PASSWORD:
-        return True  # open mode (no password configured)
+        return True
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return False
@@ -50,43 +48,9 @@ def _has_valid_auth() -> bool:
 
 @app.before_request
 def _enforce_auth():
-    """Vyžaduje platné heslo na všech /api/* endpointech kromě /api/auth.
-    Statický `/` a další non-API routy projdou bez kontroly (Vercel je beztoho
-    servíruje mimo Python funkci)."""
-    path = request.path
-    if path == "/api/auth":
-        return None  # endpoint validates itself
-    if not path.startswith("/api/"):
-        return None  # only /api/* is gated
     if not _has_valid_auth():
         return jsonify({"error": "Unauthorized", "detail": "Chybí nebo neplatné heslo"}), 401
     return None
-
-
-@app.route("/api/auth", methods=["GET", "POST"])
-def auth():
-    """Auth endpoint.
-
-    GET  -> ověří aktuální Authorization header. 200 = ok, 401 = invalid/missing.
-            Vrací i `auth_required` aby frontend věděl, jestli má kreslit login.
-    POST -> přijme {"password": "..."} v JSON, validuje, vrátí 200/401.
-    """
-    if request.method == "GET":
-        if not APP_PASSWORD:
-            return jsonify({"ok": True, "auth_required": False}), 200
-        if _has_valid_auth():
-            return jsonify({"ok": True, "auth_required": True}), 200
-        return jsonify({"ok": False, "auth_required": True}), 401
-
-    body = request.get_json(silent=True) or {}
-    password = body.get("password", "") or ""
-    if not APP_PASSWORD:
-        return jsonify({"ok": True, "auth_required": False}), 200
-    if not isinstance(password, str) or not password:
-        return jsonify({"ok": False}), 401
-    if hmac.compare_digest(password, APP_PASSWORD):
-        return jsonify({"ok": True, "auth_required": True}), 200
-    return jsonify({"ok": False}), 401
 
 
 @app.route("/api/process", methods=["POST"])
@@ -140,26 +104,3 @@ def process_pdf():
                 tmp_path.unlink(missing_ok=True)
             except Exception:
                 pass
-
-
-@app.route("/api/health", methods=["GET"])
-def health():
-    return jsonify(
-        {
-            "status": "ok",
-            "processor": get_processor_version(),
-        }
-    )
-
-
-# Local development: `python api/process.py` spustí Flask dev server,
-# který servíruje i index.html z rootu projektu (Vercel produkčně řeší statický
-# obsah jinak — tato větev se v produkci nikdy nespustí).
-if __name__ == "__main__":
-    @app.route("/")
-    def _local_index():
-        return send_from_directory(PROJECT_ROOT, "index.html")
-
-    port = int(os.getenv("PORT", "3000"))
-    print(f"\n  Darvis PDF Objednávky (local dev) running at: http://localhost:{port}\n")
-    app.run(host="127.0.0.1", port=port, debug=True)
