@@ -371,6 +371,7 @@
         loginCard.classList.add('hidden');
         mainCard.classList.remove('hidden');
         if (authRequired) logoutBtn.classList.remove('hidden');
+        prewarmProcessLambda();
       }
 
       function logout() {
@@ -383,6 +384,13 @@
       }
 
       async function checkInitialAuth() {
+        // Pokud nemáme uložené heslo, nemá smysl ptát se serveru —
+        // víme, že nejsme přihlášeni. Tím se vyhneme zbytečnému 401
+        // requestu, který by se objevil v DevTools jako červený error.
+        if (!getPassword()) {
+          showLogin();
+          return;
+        }
         try {
           const r = await fetch('/api/auth', { headers: authHeaders() });
           const data = await r.json().catch(() => ({}));
@@ -397,6 +405,24 @@
           loginError.textContent = 'Nelze se spojit se serverem: ' + err.message;
           showLogin();
         }
+      }
+
+      // Vercel uspí Python lambdu po nečinnosti; první request po probuzení
+      // trvá 5–10 s (cold start: import pandas + pdfplumber + openpyxl).
+      // Hned po vstupu do app pošleme tichý "warm-up" request, aby byla
+      // lambda připravená dřív, než uživatel klikne Zpracovat. Server vrátí
+      // rychle 400 (chybí soubor) — funkce zůstane "horká" pro další volání.
+      let prewarmStarted = false;
+      function prewarmProcessLambda() {
+        if (prewarmStarted) return;
+        prewarmStarted = true;
+        fetch('/api/process', {
+          method: 'POST',
+          headers: authHeaders(),
+        }).catch(() => {
+          // Pre-warm selhal — neřešíme. Worst-case si user prvním requestem
+          // probudí lambdu sám (jako dosud).
+        });
       }
 
       loginForm.addEventListener('submit', async (e) => {
