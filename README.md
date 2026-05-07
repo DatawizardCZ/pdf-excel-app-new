@@ -13,9 +13,9 @@ která znovupoužívá parser z [`pdf_processor.py`](pdf_processor.py).
 │  fetch, ZIP) │ ◀───────────────── │ → openpyxl XLSX     │
 └──────────────┘     XLSX bytes      └────────────────────┘
         ▲
-        │  jedno heslo
-        │  (Vercel Deployment Protection,
-        │   nastaveno v Vercel dashboardu)
+        │  Authorization: Bearer <APP_PASSWORD>
+        │  (sdílené heslo z env variable,
+        │   sessionStorage v prohlížeči)
 ```
 
 ## Struktura repa
@@ -102,15 +102,27 @@ Manuálně:
 vercel --prod
 ```
 
-### Auth (Deployment Protection)
+### Auth (vlastní login)
 
-Aplikace je chráněná **Vercel Deployment Protection** — jedno heslo na celou doménu.
+Aplikace má vlastní jednoduchý login se sdíleným heslem (jedno heslo pro všechny
+uživatele). Heslo se nastavuje v environment variable `APP_PASSWORD`.
 
-Nastavení:
+Bezpečnostní vlastnosti:
+- Heslo se na server posílá v `Authorization: Bearer <heslo>` hlavičce přes HTTPS.
+- Server používá `hmac.compare_digest` pro porovnání (constant-time, odolné proti timing útokům).
+- Frontend si heslo pamatuje v `sessionStorage` — vyprší při zavření tabu.
+- Backend ověřuje heslo na **každém** API requestu (frontend pouze schová UI; bez
+  hesla nelze API použít ani přes `curl`).
+- Pokud je `APP_PASSWORD` prázdné, aplikace běží v "open" režimu bez hesla
+  (jen pro lokální vývoj).
+
+Nastavení v produkci:
 1. Otevři projekt v Vercel dashboardu
-2. Settings → Deployment Protection → Password Protection
-3. Nastav heslo, ulož
-4. Heslo platí 14 dní v cookie u uživatele
+2. Settings → Environment Variables
+3. Přidej `APP_PASSWORD` = silné heslo (doporučeno 16+ znaků), zaškrtni všechny
+   environments (Production, Preview, Development)
+4. Save → Redeploy (jednou, aby si nový env variable vzal)
+5. Heslo měníš v dashboardu kdykoli (po změně je třeba redeploy)
 
 ## Konfigurace
 
@@ -126,6 +138,7 @@ Pro lokální `vercel dev` se načítají z `.env.local` (vytvoř kopii z `.env.
 
 | Proměnná | Default | Význam |
 |---|---|---|
+| `APP_PASSWORD` | _prázdné_ | Sdílené heslo pro vstup. Prázdné = open režim (bez hesla, jen pro lokální vývoj). V produkci VŽDY nastavte silné heslo. |
 | `DEBUG_MODE` | `false` | Pokud `true`, API vrací v chybové odpovědi i Python traceback. |
 
 ## Limity
@@ -146,11 +159,12 @@ wrapper se kvůli změně parseru nemění.
 
 ## Změny oproti původní Streamlit verzi
 
-- ❌ Streamlit, `app_secure.py`, `config.py`, vlastní login + rate limiting → nahrazeno staticem + Vercel Deployment Protection
-- ❌ `tabula-py` → nepotřeboval se, parser používá pdfplumber
+- ❌ Streamlit + `app_secure.py` (UI vrstva, login, session management) → nahrazeno staticem + jednoduchým loginem v Pythonu/JS
+- ❌ `config.py` (rate limit, file size limit, logging do souboru) → odstraněno (rate limit řeší Vercel infrastruktura, file size limit Vercel platforma, logy Vercel Functions Logs)
+- ❌ `tabula-py` → nepotřeboval se, parser používá jen pdfplumber
 - ❌ `python-dotenv` → Vercel injektuje env variables přímo
-- ❌ Soubor logy v `logs/app.log` → Vercel Functions Logs (efemérní serverless)
-- ✅ `pdf_processor.py` (547 řádků parsingu) zachováno **1:1**
+- ✅ `pdf_processor.py` (547 řádků parsingu) zachováno **1:1**, bonusový bugfix (viz níže)
+- ✅ Auth: vlastní login se sdíleným heslem (`APP_PASSWORD` env), HTTPS přes Vercel, constant-time porovnání
 - ✅ Hromadné stažení Excelů jako ZIP (nově)
 
 ### Regresní ověření migrace

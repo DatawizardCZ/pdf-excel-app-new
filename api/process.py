@@ -8,6 +8,7 @@ Endpoint: POST /api/process
 """
 from __future__ import annotations
 
+import hmac
 import io
 import os
 import sys
@@ -28,6 +29,64 @@ from pdf_processor import extract_data_from_pdf, get_processor_version
 app = Flask(__name__)
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+# Sdílené heslo pro celou aplikaci. V produkci se nastavuje v Vercel dashboardu
+# (Project Settings -> Environment Variables -> APP_PASSWORD). Pokud není
+# nastaveno, aplikace běží v "open" režimu (žádné heslo) — užitečné pro lokální
+# vývoj. Pro produkci VŽDY nastavte silné heslo.
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
+
+
+def _has_valid_auth() -> bool:
+    """Constant-time porovnání hesla z Authorization: Bearer <heslo> headeru."""
+    if not APP_PASSWORD:
+        return True  # open mode (no password configured)
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return False
+    token = auth[len("Bearer "):]
+    return hmac.compare_digest(token, APP_PASSWORD)
+
+
+@app.before_request
+def _enforce_auth():
+    """Vyžaduje platné heslo na všech /api/* endpointech kromě /api/auth.
+    Statický `/` a další non-API routy projdou bez kontroly (Vercel je beztoho
+    servíruje mimo Python funkci)."""
+    path = request.path
+    if path == "/api/auth":
+        return None  # endpoint validates itself
+    if not path.startswith("/api/"):
+        return None  # only /api/* is gated
+    if not _has_valid_auth():
+        return jsonify({"error": "Unauthorized", "detail": "Chybí nebo neplatné heslo"}), 401
+    return None
+
+
+@app.route("/api/auth", methods=["GET", "POST"])
+def auth():
+    """Auth endpoint.
+
+    GET  -> ověří aktuální Authorization header. 200 = ok, 401 = invalid/missing.
+            Vrací i `auth_required` aby frontend věděl, jestli má kreslit login.
+    POST -> přijme {"password": "..."} v JSON, validuje, vrátí 200/401.
+    """
+    if request.method == "GET":
+        if not APP_PASSWORD:
+            return jsonify({"ok": True, "auth_required": False}), 200
+        if _has_valid_auth():
+            return jsonify({"ok": True, "auth_required": True}), 200
+        return jsonify({"ok": False, "auth_required": True}), 401
+
+    body = request.get_json(silent=True) or {}
+    password = body.get("password", "") or ""
+    if not APP_PASSWORD:
+        return jsonify({"ok": True, "auth_required": False}), 200
+    if not isinstance(password, str) or not password:
+        return jsonify({"ok": False}), 401
+    if hmac.compare_digest(password, APP_PASSWORD):
+        return jsonify({"ok": True, "auth_required": True}), 200
+    return jsonify({"ok": False}), 401
 
 
 @app.route("/api/process", methods=["POST"])

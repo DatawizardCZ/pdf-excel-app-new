@@ -184,16 +184,94 @@
       font-size: 12px;
       margin-top: 28px;
     }
+
+    /* Login screen */
+    .login-card {
+      max-width: 380px;
+      margin: 64px auto 0;
+    }
+    .login-card h2 {
+      margin: 0 0 6px;
+      font-size: 20px;
+      text-align: center;
+    }
+    .login-card .login-sub {
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+      margin: 0 0 20px;
+    }
+    .login-form { display: flex; flex-direction: column; gap: 12px; }
+    .login-form label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .login-form input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: inherit;
+      background: white;
+    }
+    .login-form input[type="password"]:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .login-error {
+      color: var(--error);
+      font-size: 13px;
+      min-height: 18px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header-actions .spacer { flex: 1; }
+    .logout-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 6px 12px;
+      font-size: 13px;
+      border-radius: 6px;
+    }
+    .logout-btn:hover { color: var(--text); border-color: var(--text); }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Darvis &mdash; PDF Objednávky</h1>
-      <p class="subtitle">Převod PDF objednávek do Excelu</p>
+      <div class="header-actions">
+        <div>
+          <h1>Darvis &mdash; PDF Objednávky</h1>
+          <p class="subtitle">Převod PDF objednávek do Excelu</p>
+        </div>
+        <div class="spacer"></div>
+        <button class="logout-btn hidden" id="logoutBtn" type="button">Odhlásit</button>
+      </div>
     </header>
 
-    <div class="card">
+    <div class="card login-card hidden" id="loginCard">
+      <h2>Přihlášení</h2>
+      <p class="login-sub">Pro přístup zadejte heslo</p>
+      <form class="login-form" id="loginForm">
+        <div>
+          <label for="loginInput">Heslo</label>
+          <input type="password" id="loginInput" autocomplete="current-password" required />
+        </div>
+        <div class="login-error" id="loginError"></div>
+        <button type="submit" class="primary" id="loginSubmit">Přihlásit se</button>
+      </form>
+    </div>
+
+    <div class="card hidden" id="mainCard">
       <label class="dropzone" id="dropzone">
         <div class="dropzone-icon">&#128194;</div>
         <div class="dropzone-text">Přetáhněte sem PDF soubory nebo klikněte pro výběr</div>
@@ -234,6 +312,16 @@
           referrerpolicy="no-referrer"></script>
   <script>
     (function () {
+      const STORAGE_KEY = 'darvis_pdf_pwd';
+
+      const loginCard = document.getElementById('loginCard');
+      const loginForm = document.getElementById('loginForm');
+      const loginInput = document.getElementById('loginInput');
+      const loginError = document.getElementById('loginError');
+      const loginSubmit = document.getElementById('loginSubmit');
+      const mainCard = document.getElementById('mainCard');
+      const logoutBtn = document.getElementById('logoutBtn');
+
       const dropzone = document.getElementById('dropzone');
       const fileInput = document.getElementById('fileInput');
       const fileListEl = document.getElementById('fileList');
@@ -251,6 +339,87 @@
 
       let selectedFiles = [];
       let processedResults = [];
+      let authRequired = true;
+
+      function getPassword() {
+        return sessionStorage.getItem(STORAGE_KEY) || '';
+      }
+
+      function authHeaders() {
+        const pwd = getPassword();
+        return pwd ? { Authorization: 'Bearer ' + pwd } : {};
+      }
+
+      function showLogin() {
+        loginCard.classList.remove('hidden');
+        mainCard.classList.add('hidden');
+        resultsCard.classList.add('hidden');
+        logoutBtn.classList.add('hidden');
+        setTimeout(() => loginInput.focus(), 50);
+      }
+
+      function showApp() {
+        loginCard.classList.add('hidden');
+        mainCard.classList.remove('hidden');
+        if (authRequired) logoutBtn.classList.remove('hidden');
+      }
+
+      function logout() {
+        sessionStorage.removeItem(STORAGE_KEY);
+        selectedFiles = [];
+        processedResults = [];
+        renderFileList();
+        progressWrap.classList.remove('visible');
+        showLogin();
+      }
+
+      async function checkInitialAuth() {
+        try {
+          const r = await fetch('/api/auth', { headers: authHeaders() });
+          const data = await r.json().catch(() => ({}));
+          authRequired = !!data.auth_required;
+          if (r.ok) {
+            showApp();
+          } else {
+            sessionStorage.removeItem(STORAGE_KEY);
+            showLogin();
+          }
+        } catch (err) {
+          loginError.textContent = 'Nelze se spojit se serverem: ' + err.message;
+          showLogin();
+        }
+      }
+
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        loginError.textContent = '';
+        const pwd = loginInput.value;
+        if (!pwd) return;
+        loginSubmit.disabled = true;
+        try {
+          const r = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pwd }),
+          });
+          if (r.ok) {
+            const data = await r.json().catch(() => ({}));
+            authRequired = !!data.auth_required;
+            sessionStorage.setItem(STORAGE_KEY, pwd);
+            loginInput.value = '';
+            showApp();
+          } else {
+            loginError.textContent = 'Nesprávné heslo';
+            loginInput.select();
+          }
+        } catch (err) {
+          loginError.textContent = 'Chyba při přihlašování: ' + err.message;
+        } finally {
+          loginSubmit.disabled = false;
+        }
+      });
+
+      logoutBtn.addEventListener('click', logout);
 
       ['dragenter', 'dragover'].forEach((ev) => {
         dropzone.addEventListener(ev, (e) => {
@@ -351,8 +520,16 @@
         try {
           const response = await fetch('/api/process', {
             method: 'POST',
+            headers: authHeaders(),
             body: formData,
           });
+
+          if (response.status === 401) {
+            sessionStorage.removeItem(STORAGE_KEY);
+            const err = new Error('Vypršela relace, přihlas se znovu');
+            err.unauthorized = true;
+            throw err;
+          }
 
           if (!response.ok) {
             let msg = 'HTTP ' + response.status;
@@ -375,7 +552,7 @@
           fileItemEl.classList.remove('processing');
           fileItemEl.classList.add('error');
           statusEl.textContent = 'Chyba: ' + err.message;
-          return { name: file.name, error: err.message, success: false };
+          return { name: file.name, error: err.message, success: false, unauthorized: !!err.unauthorized };
         }
       }
 
@@ -415,6 +592,12 @@
         }
 
         await Promise.all(Array.from({ length: concurrency }, worker));
+
+        // Pokud některý request narazil na 401, přesměrovat na login.
+        if (processedResults.some((r) => r.unauthorized)) {
+          showLogin();
+          return;
+        }
 
         progressText.textContent = 'Dokončeno';
         renderResults();
@@ -504,6 +687,10 @@
           downloadAllBtn.disabled = false;
         }
       });
+
+      // Bootstrap: zjistit, jestli je třeba se přihlásit, a podle toho zobrazit
+      // buď login formulář, nebo rovnou aplikaci.
+      checkInitialAuth();
     })();
   </script>
 </body>
