@@ -370,8 +370,8 @@
       function showApp() {
         loginCard.classList.add('hidden');
         mainCard.classList.remove('hidden');
+        resultsCard.classList.remove('hidden');
         if (authRequired) logoutBtn.classList.remove('hidden');
-        prewarmProcessLambda();
       }
 
       function logout() {
@@ -405,24 +405,6 @@
           loginError.textContent = 'Nelze se spojit se serverem: ' + err.message;
           showLogin();
         }
-      }
-
-      // Vercel uspí Python lambdu po nečinnosti; první request po probuzení
-      // trvá 5–10 s (cold start: import pandas + pdfplumber + openpyxl).
-      // Hned po vstupu do app pošleme tichý "warm-up" request a uložíme
-      // si Promise — processFile() pak na něj počká, aby reálný request
-      // s PDFkem dorazil na lambdu, která už je v paměti.
-      // Server na warm-up odpoví rychle 400 (chybí soubor), to nás nezajímá.
-      let prewarmPromise = null;
-      function prewarmProcessLambda() {
-        if (prewarmPromise) return prewarmPromise;
-        prewarmPromise = fetch('/api/process', {
-          method: 'POST',
-          headers: authHeaders(),
-        }).catch(() => {
-          // Pre-warm selhal — fallback je standardní cold start na reálném requestu.
-        });
-        return prewarmPromise;
       }
 
       loginForm.addEventListener('submit', async (e) => {
@@ -547,18 +529,6 @@
         fileItemEl.classList.remove('success', 'error');
         fileItemEl.classList.add('processing');
         const statusEl = fileItemEl.querySelector('[data-status]');
-
-        // Pokud lambda ještě nedoběhla pre-warm, počkej na ni — jinak by
-        // Vercel mohl reálný request poslat na druhou (taky chladnou) instanci
-        // a uživatel by koukal na zaseknutý progress bar 5–10 s.
-        if (prewarmPromise) {
-          statusEl.textContent = 'Připravuji prostředí...';
-          await Promise.race([
-            prewarmPromise,
-            new Promise((resolve) => setTimeout(resolve, 20000)),
-          ]).catch(() => {});
-        }
-
         statusEl.textContent = 'Zpracovávám...';
 
         const formData = new FormData();
