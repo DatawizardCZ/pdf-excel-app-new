@@ -409,20 +409,20 @@
 
       // Vercel uspí Python lambdu po nečinnosti; první request po probuzení
       // trvá 5–10 s (cold start: import pandas + pdfplumber + openpyxl).
-      // Hned po vstupu do app pošleme tichý "warm-up" request, aby byla
-      // lambda připravená dřív, než uživatel klikne Zpracovat. Server vrátí
-      // rychle 400 (chybí soubor) — funkce zůstane "horká" pro další volání.
-      let prewarmStarted = false;
+      // Hned po vstupu do app pošleme tichý "warm-up" request a uložíme
+      // si Promise — processFile() pak na něj počká, aby reálný request
+      // s PDFkem dorazil na lambdu, která už je v paměti.
+      // Server na warm-up odpoví rychle 400 (chybí soubor), to nás nezajímá.
+      let prewarmPromise = null;
       function prewarmProcessLambda() {
-        if (prewarmStarted) return;
-        prewarmStarted = true;
-        fetch('/api/process', {
+        if (prewarmPromise) return prewarmPromise;
+        prewarmPromise = fetch('/api/process', {
           method: 'POST',
           headers: authHeaders(),
         }).catch(() => {
-          // Pre-warm selhal — neřešíme. Worst-case si user prvním requestem
-          // probudí lambdu sám (jako dosud).
+          // Pre-warm selhal — fallback je standardní cold start na reálném requestu.
         });
+        return prewarmPromise;
       }
 
       loginForm.addEventListener('submit', async (e) => {
@@ -547,16 +547,35 @@
         fileItemEl.classList.remove('success', 'error');
         fileItemEl.classList.add('processing');
         const statusEl = fileItemEl.querySelector('[data-status]');
+
+        // Pokud lambda ještě nedoběhla pre-warm, počkej na ni — jinak by
+        // Vercel mohl reálný request poslat na druhou (taky chladnou) instanci
+        // a uživatel by koukal na zaseknutý progress bar 5–10 s.
+        if (prewarmPromise) {
+          statusEl.textContent = 'Připravuji prostředí...';
+          await Promise.race([
+            prewarmPromise,
+            new Promise((resolve) => setTimeout(resolve, 20000)),
+          ]).catch(() => {});
+        }
+
         statusEl.textContent = 'Zpracovávám...';
 
         const formData = new FormData();
         formData.append('file', file);
+
+        // Tvrdý timeout pro fetch, aby UI nikdy "tiše neviselo".
+        // 90 s je s rezervou nad maxDuration funkce (60 s) i nad
+        // typickým cold startem (5–10 s) + parsováním (1–2 s).
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
 
         try {
           const response = await fetch('/api/process', {
             method: 'POST',
             headers: authHeaders(),
             body: formData,
+            signal: controller.signal,
           });
 
           if (response.status === 401) {
@@ -586,8 +605,13 @@
         } catch (err) {
           fileItemEl.classList.remove('processing');
           fileItemEl.classList.add('error');
-          statusEl.textContent = 'Chyba: ' + err.message;
-          return { name: file.name, error: err.message, success: false, unauthorized: !!err.unauthorized };
+          const msg = err.name === 'AbortError'
+            ? 'Server neodpovídá (90 s). Zkus to znovu.'
+            : err.message;
+          statusEl.textContent = 'Chyba: ' + msg;
+          return { name: file.name, error: msg, success: false, unauthorized: !!err.unauthorized };
+        } finally {
+          clearTimeout(timeoutId);
         }
       }
 
