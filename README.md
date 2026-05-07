@@ -1,146 +1,179 @@
 # Darvis - PDF Objednávky
 
-Bezpečná Streamlit aplikace pro převod PDF objednávek do Excelu.
+Webová aplikace pro převod PDF objednávek (Købsrekvisition) do Excelu.
+Frontend je statický HTML/JS, backend je jediná Python serverless funkce na Vercelu,
+která znovupoužívá parser z [`pdf_processor.py`](pdf_processor.py).
 
-## 🚀 Funkce
+## Architektura
 
-- ✅ Autentizace uživatelů
-- ✅ Validace nahrávaných souborů
-- ✅ Omezení velikosti a počtu souborů
-- ✅ Bezpečné zpracování chyb
-- ✅ Logging aktivit
-- ✅ Session management
-- ✅ Převod PDF objednávek do Excel formátu
-
-## 📋 Požadavky
-
-- Python 3.8 nebo vyšší
-- Streamlit 1.28.0 nebo vyšší
-
-## 🔧 Instalace
-
-1. Naklonujte repozitář:
-```bash
-git clone <repository-url>
-cd 2025-11_Darvis_PDF_objednavky
+```
+┌──────────────┐  POST /api/process  ┌────────────────────┐
+│ index.html   │ ─────────────────▶  │ api/process.py      │
+│ (drag&drop,  │  multipart/form-data │ Flask + pdfplumber  │
+│  fetch, ZIP) │ ◀───────────────── │ → openpyxl XLSX     │
+└──────────────┘     XLSX bytes      └────────────────────┘
+        ▲
+        │  jedno heslo
+        │  (Vercel Deployment Protection,
+        │   nastaveno v Vercel dashboardu)
 ```
 
-2. Vytvořte virtuální prostředí:
-```bash
-python -m venv venv
-```
-
-3. Aktivujte virtuální prostředí:
-- Windows: `venv\Scripts\activate`
-- Linux/Mac: `source venv/bin/activate`
-
-4. Nainstalujte závislosti:
-```bash
-pip install -r requirements.txt
-```
-
-5. Vytvořte soubor `.env` z `.env.example`:
-```bash
-cp .env.example .env
-```
-
-6. Upravte `.env` soubor s vašimi přihlašovacími údaji:
-```
-APP_USERNAME=your_username
-APP_PASSWORD=your_secure_password
-```
-
-## ▶️ Spuštění
-
-```bash
-streamlit run app_secure.py
-```
-
-Aplikace bude dostupná na `http://localhost:8501`
-
-Pokud chcete spusit bez automatického otevření prohlížeče, použijte:
-
-```bash
-streamlit run app_secure.py --server.headless true
-```
-
-Aplikace bude dostupná na `http://localhost:8501`
-
-## 🔒 Bezpečnost
-
-⚠️ **DŮLEŽITÉ PRO PRODUKCI:**
-
-1. Změňte výchozí přihlašovací údaje v `.env` souboru
-2. Nastavte `DEBUG_MODE=false` v produkci
-3. Použijte HTTPS v produkčním prostředí
-4. Nastavte `REQUIRE_HTTPS=true` pro vynucení HTTPS
-5. Pravidelně kontrolujte logy v `logs/app.log`
-
-## 📁 Struktura projektu
+## Struktura repa
 
 ```
 .
-├── app_secure.py          # Hlavní aplikace
-├── config.py              # Konfigurační modul
-├── pdf_processor.py       # Zpracování PDF
-├── requirements.txt       # Python závislosti
-├── .env.example           # Šablona pro environment variables
-├── .gitignore            # Git ignore soubor
-└── README.md             # Tento soubor
+├── api/process.py        # Vercel Python Function (Flask, /api/process)
+├── index.html            # Frontend (vanilla HTML+CSS+JS, single file)
+├── pdf_processor.py      # PDF parser (sdílený s původní Streamlit verzí)
+├── requirements.txt      # Python dependencies pro serverless
+├── vercel.json           # Vercel konfigurace (memory, maxDuration)
+├── .env.example          # Vzor environment variables
+├── .devcontainer/        # Devcontainer pro lokální vývoj
+└── test_files/           # Vzorová PDF na ruční testy
 ```
 
-## 🌐 Nasazení
+## Formát exportu (XLSX)
 
-### Streamlit Cloud
+Z každého vstupního PDF (`Købsrekvisition <číslo> <zkratka>.pdf`) vznikne jeden
+Excel soubor pojmenovaný `<původní_název>_processed.xlsx`. Obsahuje **jeden list**
+nazvaný `Objednávka` s následujícími sloupci:
 
-1. Pushněte kód na GitHub
-2. Přihlaste se na [Streamlit Cloud](https://streamlit.io/cloud)
-3. Klikněte na "New app"
-4. Vyberte repozitář a branch
-5. Nastavte environment variables v Settings:
-   - `APP_USERNAME`
-   - `APP_PASSWORD`
-   - `DEBUG_MODE=false`
-   - `REQUIRE_HTTPS=true`
+| # | Sloupec            | Popis                                                              |
+|---|--------------------|--------------------------------------------------------------------|
+| A | `Vendor Item No.`  | Interní katalogové číslo dodavatele (např. `80203`, `15910S`).      |
+| B | `Barcode No.`      | EAN/čárový kód, typicky 13 cifer.                                   |
+| C | `Description`      | Hlavní popis položky z prvního textového řádku.                     |
+| D | `Variant`          | Varianta produktu (nejčastěji prázdné).                             |
+| E | `Price` (Cost Price) | Jednotková cena s desetinnou čárkou (např. `1,58`).               |
+| F | `Quantity`         | Objednané množství (kolik balení/kusů).                             |
+| G | `Kolli Str.`       | Velikost balení (počet kusů v jednom kolli).                        |
+| H | `Pieces`           | Celkový počet kusů (`Quantity × Kolli Str.`).                       |
+| I | `Specification`    | Druhý popisný řádek z PDF — typicky latinský/biologický název druhu.|
 
-### Docker
+- **Řádek 1** = hlavičky sloupců (zachovány v původním pojmenování z PDF).
+- **Řádek 2 a dál** = jedna položka objednávky na řádek.
+- Žádný index sloupec, žádné sloučené buňky, žádné formátování — čistá data
+  připravená pro další zpracování (filtry, kontingenční tabulky, import jinam).
 
-```dockerfile
-FROM python:3.9-slim
+**Příklad výstupu (řádek 2):**
 
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-EXPOSE 8501
-
-CMD ["streamlit", "run", "app_secure.py", "--server.port=8501", "--server.address=0.0.0.0"]
+```
+Vendor Item No. | Barcode No.   | Description                | Variant | Price | Quantity | Kolli Str. | Pieces | Specification
+80203           | 2521904852390 | Rotte small                |         | 1,58  | 2        | 1          | 2      |
+80245           | 2522262405839 | Ildskink M - L             |         | 49,72 | 1        | 1          | 1      | Riopa fernandi
+09243           | 2522003664181 | Orange Dværg Hummer        |         | 2,99  | 5        | 1          | 5      | Cambarellus Patzcuarensis Orange
 ```
 
-## 📝 Konfigurace
+Hlavičky se automaticky přizpůsobí jazyku původního PDF (anglické/dánské):
+- anglické: `Vendor Item No.`, `Barcode No.`, `Description`, `Cost Price`, `Quantity`, `Kolli Str.`, `Pieces`
+- dánské: `Nr.`, `Stregkode`, `Beskrivelse`, `Pris`, `Antal`, `Styk`
 
-Všechny konfigurační možnosti jsou v `config.py` a lze je přepsat pomocí environment variables:
+## Lokální vývoj
 
-- `APP_USERNAME` - Uživatelské jméno pro přihlášení
-- `APP_PASSWORD` - Heslo pro přihlášení
-- `MAX_FILE_SIZE_MB` - Maximální velikost souboru (výchozí: 50 MB)
-- `MAX_FILES_PER_SESSION` - Maximální počet souborů (výchozí: 20)
-- `SESSION_TIMEOUT` - Timeout relace v sekundách (výchozí: 3600)
-- `DEBUG_MODE` - Debug mód (true/false)
-- `LOG_LEVEL` - Úroveň logování (DEBUG, INFO, WARNING, ERROR)
+Potřebuješ Node.js (kvůli Vercel CLI) a Python 3.9+.
 
-## 📄 Licence
+```bash
+npm i -g vercel
+vercel link              # propojí repo s Vercel projektem (jednou)
+vercel dev               # spustí frontend i Python funkci na http://localhost:3000
+```
 
-Všechna práva vyhrazena.
+`vercel dev` automaticky:
+- nainstaluje `requirements.txt` do izolovaného prostředí
+- servíruje `index.html` na `/`
+- routuje `POST /api/process` na `api/process.py`
 
-## 👤 Autor
+Otestuj proti vzorkům:
 
-Darvis - PDF Objednávky
+```bash
+curl -X POST -F "file=@test_files/Købsrekvisition K0145913 TIL.pdf" \
+  http://localhost:3000/api/process -o test.xlsx
+```
 
-## 🆘 Podpora
+## Deploy
 
-Pro problémy nebo dotazy vytvořte issue v repozitáři.
+### Production deploy
 
+Po pushnutí na `main` se spustí auto-deploy (pokud máš v Vercel dashboardu napojený GitHub repo).
 
+Manuálně:
+
+```bash
+vercel --prod
+```
+
+### Auth (Deployment Protection)
+
+Aplikace je chráněná **Vercel Deployment Protection** — jedno heslo na celou doménu.
+
+Nastavení:
+1. Otevři projekt v Vercel dashboardu
+2. Settings → Deployment Protection → Password Protection
+3. Nastav heslo, ulož
+4. Heslo platí 14 dní v cookie u uživatele
+
+## Konfigurace
+
+### `vercel.json`
+
+- `memory: 1024` — 1 GB paměti pro funkci (pdf parsování zvládá s rezervou)
+- `maxDuration: 60` — max 60 s na request (vyžaduje Vercel Pro)
+
+### Environment variables
+
+Nastavují se v Vercel dashboardu (Project Settings → Environment Variables).
+Pro lokální `vercel dev` se načítají z `.env.local` (vytvoř kopii z `.env.example`).
+
+| Proměnná | Default | Význam |
+|---|---|---|
+| `DEBUG_MODE` | `false` | Pokud `true`, API vrací v chybové odpovědi i Python traceback. |
+
+## Limity
+
+- **Upload max ~4.5 MB** — Vercel limit na request body. Pro typické objednávkové PDF výrazně víc, než je potřeba.
+- **Timeout 60 s** — když je PDF hodně velké/složité, může vypršet čas. V praxi se objednávky parsují pod 5 s.
+- **Function size limit 250 MB** (rozbalená velikost). pandas + pdfplumber + openpyxl + Flask se vejde s rezervou.
+
+## Logy
+
+Vercel Functions Logs v dashboardu (Deployments → poslední → Function Logs).
+Každé volání `/api/process` tam má záznam včetně délky trvání a paměti.
+
+## Update parsing logiky
+
+Editovat `pdf_processor.py` → push na `main` → auto-deploy. Frontend ani API
+wrapper se kvůli změně parseru nemění.
+
+## Změny oproti původní Streamlit verzi
+
+- ❌ Streamlit, `app_secure.py`, `config.py`, vlastní login + rate limiting → nahrazeno staticem + Vercel Deployment Protection
+- ❌ `tabula-py` → nepotřeboval se, parser používá pdfplumber
+- ❌ `python-dotenv` → Vercel injektuje env variables přímo
+- ❌ Soubor logy v `logs/app.log` → Vercel Functions Logs (efemérní serverless)
+- ✅ `pdf_processor.py` (547 řádků parsingu) zachováno **1:1**
+- ✅ Hromadné stažení Excelů jako ZIP (nově)
+
+### Regresní ověření migrace
+
+Při migraci byl XLSX výstup nového stacku porovnán proti původní Streamlit verzi
+nad všemi 8 vzorovými PDF v `test_files/`. Iniciální porovnání (před bugfixem
+níže) ukázalo **identický výstup ve všech 1 035 buňkách napříč 8 soubory**.
+
+Důvod: [`api/process.py`](api/process.py) používá pro zápis Excelu naprosto
+stejné volání jako původní Streamlit (`pd.ExcelWriter` + `engine='openpyxl'`
++ `sheet_name='Objednávka'`), a parser [`pdf_processor.py`](pdf_processor.py)
+zůstal beze změn (kromě bugfixu níže).
+
+### Bugfix při migraci: phantom adresní řádek
+
+Během testování se ukázalo, že u PDF s druhou stranou (např.
+[`test_files/Købsrekvisition K0145958 AAL.pdf`](test_files/Købsrekvisition%20K0145958%20AAL.pdf))
+parser zařadil do tabulky i část adresy příjemce — řádek
+`27204 Kladno 9200 Aalborg SV` se ocitl v Excelu jako falešná položka
+s Vendor Item No. `27204` a textem adresy v poli `Description`.
+
+Tenhle bug existoval i v původní Streamlit verzi (parser je sdílený). V rámci
+migrace byl opraven přidáním validačního filtru v
+[`pdf_processor.py`](pdf_processor.py): řádek je zařazen do výstupu pouze
+pokud má buď platný čárový kód (≥ 10 cifer), nebo cenu s desetinnou částí.
+Adresní řádky obojí postrádají, takže propadnou filtrem.

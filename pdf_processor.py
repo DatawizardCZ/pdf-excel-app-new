@@ -368,6 +368,13 @@ def extract_data_from_pdf(pdf_path: Path) -> pd.DataFrame:
             kolli = trailing_tokens[1] if len(trailing_tokens) > 1 else ''
             pieces = trailing_tokens[2] if len(trailing_tokens) > 2 else ''
             
+            # Filtr na phantom řádky z patičky/adresy: validní položka objednávky musí
+            # mít buď čárový kód (>=10 cifer ve 2. pozici), nebo cenu (s desetinnou částí).
+            # Bez obou jde téměř jistě o adresní řádek typu "27204 Kladno 9200 Aalborg SV",
+            # který parser jinak omylem zařadí jako položku.
+            if not row_data[1] and not price_value:
+                continue
+            
             # Pokud description obsahuje více řádků (oddělené mezerami nebo skutečnými newlines),
             # rozdělit na první řádek (Description) a zbytek (půjde do Specification později)
             # Ale pro teď uložit celý text do Description - Specification se přidá z následujícího řádku

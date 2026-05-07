@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Darvis - PDF Objednávky</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --error: #dc2626;
+      --error-bg: #fee2e2;
+      --warn-bg: #fef3c7;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      margin: 0;
+      padding: 32px 16px;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .container { max-width: 800px; margin: 0 auto; }
+
+    header { margin-bottom: 24px; }
+    h1 { font-size: 26px; margin: 0 0 4px; font-weight: 700; }
+    .subtitle { color: var(--muted); margin: 0; font-size: 15px; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .dropzone {
+      display: block;
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      background: #fafbfc;
+    }
+
+    .dropzone:hover,
+    .dropzone.dragover {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+
+    .dropzone-icon { font-size: 40px; margin-bottom: 8px; line-height: 1; }
+    .dropzone-text { font-size: 15px; margin-bottom: 4px; font-weight: 500; }
+    .dropzone-hint { color: var(--muted); font-size: 13px; }
+
+    input[type="file"] { display: none; }
+
+    .file-list { list-style: none; padding: 0; margin: 16px 0 0; }
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f1f5f9;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+    .file-item.processing { background: var(--warn-bg); }
+    .file-item.success { background: var(--success-bg); }
+    .file-item.error { background: var(--error-bg); }
+
+    .file-icon { font-size: 18px; flex-shrink: 0; }
+    .file-name { flex: 1; word-break: break-all; }
+    .file-status {
+      font-size: 12px;
+      color: var(--muted);
+      flex-shrink: 0;
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .file-item.error .file-status { color: var(--error); }
+
+    .file-remove {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 18px;
+      padding: 2px 6px;
+      line-height: 1;
+    }
+    .file-remove:hover { color: var(--error); }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      transition: opacity 0.15s, background 0.15s;
+    }
+
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button.primary {
+      background: var(--primary);
+      color: white;
+    }
+    button.primary:hover:not(:disabled) { background: var(--primary-hover); }
+
+    button.secondary {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.secondary:hover:not(:disabled) { background: var(--bg); }
+
+    button.download {
+      background: var(--success);
+      color: white;
+      padding: 6px 14px;
+      font-size: 13px;
+    }
+    button.download:hover:not(:disabled) { background: #15803d; }
+
+    .progress-wrap { margin-top: 12px; display: none; }
+    .progress-wrap.visible { display: block; }
+    .progress-text {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      width: 0%;
+      transition: width 0.2s;
+    }
+
+    .results-summary {
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .results-summary.success { color: var(--success); }
+    .results-summary.warn { color: #b45309; }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 28px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Darvis &mdash; PDF Objednávky</h1>
+      <p class="subtitle">Převod PDF objednávek do Excelu</p>
+    </header>
+
+    <div class="card">
+      <label class="dropzone" id="dropzone">
+        <div class="dropzone-icon">&#128194;</div>
+        <div class="dropzone-text">Přetáhněte sem PDF soubory nebo klikněte pro výběr</div>
+        <div class="dropzone-hint">Můžete vybrat více souborů najednou</div>
+        <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple />
+      </label>
+
+      <ul class="file-list" id="fileList"></ul>
+
+      <div class="actions" id="actions" style="display: none;">
+        <button class="primary" id="processBtn" type="button">Zpracovat objednávky</button>
+        <button class="secondary" id="clearBtn" type="button">Vymazat seznam</button>
+      </div>
+
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-text" id="progressText">Připravuji...</div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+    </div>
+
+    <div class="card" id="resultsCard" style="display: none;">
+      <h3 style="margin: 0 0 8px;">Stáhnout výsledky</h3>
+      <div class="results-summary" id="resultsSummary"></div>
+      <ul class="file-list" id="resultsList"></ul>
+      <div class="actions" id="resultsActions" style="display: none;">
+        <button class="primary" id="downloadAllBtn" type="button">Stáhnout vše (ZIP)</button>
+      </div>
+    </div>
+
+    <footer>
+      Darvis &mdash; PDF Objednávky
+    </footer>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+          integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=="
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer"></script>
+  <script>
+    (function () {
+      const dropzone = document.getElementById('dropzone');
+      const fileInput = document.getElementById('fileInput');
+      const fileListEl = document.getElementById('fileList');
+      const actionsEl = document.getElementById('actions');
+      const processBtn = document.getElementById('processBtn');
+      const clearBtn = document.getElementById('clearBtn');
+      const progressWrap = document.getElementById('progressWrap');
+      const progressFill = document.getElementById('progressFill');
+      const progressText = document.getElementById('progressText');
+      const resultsCard = document.getElementById('resultsCard');
+      const resultsSummary = document.getElementById('resultsSummary');
+      const resultsListEl = document.getElementById('resultsList');
+      const resultsActions = document.getElementById('resultsActions');
+      const downloadAllBtn = document.getElementById('downloadAllBtn');
+
+      let selectedFiles = [];
+      let processedResults = [];
+
+      ['dragenter', 'dragover'].forEach((ev) => {
+        dropzone.addEventListener(ev, (e) => {
+          e.preventDefault();
+          dropzone.classList.add('dragover');
+        });
+      });
+      ['dragleave', 'drop'].forEach((ev) => {
+        dropzone.addEventListener(ev, (e) => {
+          e.preventDefault();
+          dropzone.classList.remove('dragover');
+        });
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        const files = Array.from(e.dataTransfer.files).filter((f) =>
+          f.name.toLowerCase().endsWith('.pdf')
+        );
+        addFiles(files);
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        addFiles(Array.from(e.target.files));
+        fileInput.value = '';
+      });
+
+      function addFiles(files) {
+        for (const file of files) {
+          const dup = selectedFiles.find(
+            (f) => f.name === file.name && f.size === file.size
+          );
+          if (!dup) selectedFiles.push(file);
+        }
+        renderFileList();
+      }
+
+      function removeFile(idx) {
+        selectedFiles.splice(idx, 1);
+        renderFileList();
+      }
+
+      function buildFileItem(file, idx) {
+        const li = document.createElement('li');
+        li.className = 'file-item';
+        li.dataset.idx = String(idx);
+
+        const icon = document.createElement('span');
+        icon.className = 'file-icon';
+        icon.textContent = '\u{1F4C4}';
+
+        const name = document.createElement('span');
+        name.className = 'file-name';
+        name.textContent = file.name;
+
+        const status = document.createElement('span');
+        status.className = 'file-status';
+        status.dataset.status = '';
+
+        const remove = document.createElement('button');
+        remove.className = 'file-remove';
+        remove.type = 'button';
+        remove.title = 'Odstranit';
+        remove.textContent = '\u00D7';
+        remove.addEventListener('click', () => removeFile(idx));
+
+        li.appendChild(icon);
+        li.appendChild(name);
+        li.appendChild(status);
+        li.appendChild(remove);
+        return li;
+      }
+
+      function renderFileList() {
+        fileListEl.replaceChildren();
+        selectedFiles.forEach((file, idx) => {
+          fileListEl.appendChild(buildFileItem(file, idx));
+        });
+        actionsEl.style.display = selectedFiles.length > 0 ? 'flex' : 'none';
+      }
+
+      clearBtn.addEventListener('click', () => {
+        selectedFiles = [];
+        processedResults = [];
+        renderFileList();
+        resultsCard.style.display = 'none';
+        progressWrap.classList.remove('visible');
+      });
+
+      async function processFile(file, fileItemEl) {
+        fileItemEl.classList.remove('success', 'error');
+        fileItemEl.classList.add('processing');
+        const statusEl = fileItemEl.querySelector('[data-status]');
+        statusEl.textContent = 'Zpracovávám...';
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+          const response = await fetch('/api/process', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!response.ok) {
+            let msg = 'HTTP ' + response.status;
+            try {
+              const j = await response.json();
+              msg = j.detail || j.error || msg;
+            } catch (_) {}
+            throw new Error(msg);
+          }
+
+          const blob = await response.blob();
+          const excelName = file.name.replace(/\.pdf$/i, '_processed.xlsx');
+
+          fileItemEl.classList.remove('processing');
+          fileItemEl.classList.add('success');
+          statusEl.textContent = 'Hotovo';
+
+          return { name: excelName, blob, originalName: file.name, success: true };
+        } catch (err) {
+          fileItemEl.classList.remove('processing');
+          fileItemEl.classList.add('error');
+          statusEl.textContent = 'Chyba: ' + err.message;
+          return { name: file.name, error: err.message, success: false };
+        }
+      }
+
+      processBtn.addEventListener('click', async () => {
+        if (selectedFiles.length === 0) return;
+
+        processBtn.disabled = true;
+        clearBtn.disabled = true;
+        progressWrap.classList.add('visible');
+        progressFill.style.width = '0%';
+        progressText.textContent = 'Zpracovávám 0 / ' + selectedFiles.length;
+        resultsCard.style.display = 'none';
+        processedResults = [];
+
+        const fileItems = Array.from(fileListEl.querySelectorAll('.file-item'));
+        fileItems.forEach((el) => {
+          el.classList.remove('processing', 'success', 'error');
+          const s = el.querySelector('[data-status]');
+          if (s) s.textContent = '';
+        });
+
+        const queue = selectedFiles.map((file, idx) => ({ file, fileItemEl: fileItems[idx] }));
+        const concurrency = Math.min(3, selectedFiles.length);
+        let completed = 0;
+        const total = selectedFiles.length;
+
+        async function worker() {
+          while (queue.length > 0) {
+            const job = queue.shift();
+            if (!job) break;
+            const result = await processFile(job.file, job.fileItemEl);
+            processedResults.push(result);
+            completed += 1;
+            progressFill.style.width = (completed / total) * 100 + '%';
+            progressText.textContent = 'Zpracovávám ' + completed + ' / ' + total;
+          }
+        }
+
+        await Promise.all(Array.from({ length: concurrency }, worker));
+
+        progressText.textContent = 'Dokončeno';
+        renderResults();
+        processBtn.disabled = false;
+        clearBtn.disabled = false;
+      });
+
+      function buildResultItem(result) {
+        const li = document.createElement('li');
+        li.className = 'file-item success';
+
+        const icon = document.createElement('span');
+        icon.className = 'file-icon';
+        icon.textContent = '\u{1F4CA}';
+
+        const name = document.createElement('span');
+        name.className = 'file-name';
+        name.textContent = result.name;
+
+        const btn = document.createElement('button');
+        btn.className = 'download';
+        btn.type = 'button';
+        btn.textContent = 'Stáhnout';
+        btn.addEventListener('click', () => downloadBlob(result.blob, result.name));
+
+        li.appendChild(icon);
+        li.appendChild(name);
+        li.appendChild(btn);
+        return li;
+      }
+
+      function renderResults() {
+        resultsCard.style.display = 'block';
+        resultsListEl.replaceChildren();
+
+        const success = processedResults.filter((r) => r.success);
+        const failed = processedResults.filter((r) => !r.success);
+
+        if (success.length === 0) {
+          resultsSummary.className = 'results-summary warn';
+          resultsSummary.textContent =
+            'Žádný soubor se nepodařilo zpracovat. Zkontrolujte stavy jednotlivých souborů výše.';
+          resultsActions.style.display = 'none';
+          return;
+        }
+
+        if (failed.length === 0) {
+          resultsSummary.className = 'results-summary success';
+          resultsSummary.textContent =
+            'Úspěšně zpracováno ' + success.length + ' / ' + processedResults.length + ' souborů.';
+        } else {
+          resultsSummary.className = 'results-summary warn';
+          resultsSummary.textContent =
+            'Zpracováno ' + success.length + ' / ' + processedResults.length + ' souborů, ' + failed.length + ' selhalo (viz seznam výše).';
+        }
+
+        success.forEach((r) => {
+          resultsListEl.appendChild(buildResultItem(r));
+        });
+
+        resultsActions.style.display = success.length > 1 ? 'flex' : 'none';
+      }
+
+      function downloadBlob(blob, name) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      downloadAllBtn.addEventListener('click', async () => {
+        const success = processedResults.filter((r) => r.success);
+        if (success.length === 0) return;
+
+        downloadAllBtn.disabled = true;
+        try {
+          const zip = new JSZip();
+          success.forEach((r) => zip.file(r.name, r.blob));
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const ts = new Date().toISOString().slice(0, 10);
+          downloadBlob(zipBlob, 'darvis_objednavky_' + ts + '.zip');
+        } finally {
+          downloadAllBtn.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

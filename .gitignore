@@ -3,10 +3,6 @@
 .env.local
 .env.*.local
 
-# Logs
-logs/
-*.log
-
 # Python
 __pycache__/
 *.py[cod]
@@ -17,6 +13,9 @@ env/
 venv/
 ENV/
 .venv
+
+# Vercel
+.vercel/
 
 # Temporary files
 *.tmp
@@ -44,7 +43,3 @@ pdf_analysis.json
 *.key
 *.pem
 *.crt
-
-
-
-
